@@ -3,6 +3,7 @@ import os
 from database import init_db, get_db
 from dotenv import load_dotenv
 from router import Router
+from utils import *
 
 load_dotenv()
 
@@ -45,15 +46,26 @@ def make_response(status_code, status_text, body, content_type='text/html; chars
     return response.encode('utf-8')
 
 def handle_home(method, path, headers, body):
-    html = '''
-    <html>
+    user = get_session_user(headers)
+
+    if user:
+        html = f'''
+        <html>
         <body>
-            <h1>Welcome to OpenDot</h1>
-            <p>A blogging platform.</p>
-            <a href="/about">About</a>
+            <h1>Welcome back, {user["username"]}!</h1>
+            <p><a href="/logout">Log out</a></p>
         </body>
-    </html>
-    '''
+        </html>
+        '''
+    else:
+        html = '''
+        <html>
+        <body>
+            <h1>Welcome to RawBlog</h1>
+            <p><a href="/login">Log in</a> or <a href="/register">Register</a></p>
+        </body>
+        </html>
+        '''
     return make_response(200, 'OK', html)
 
 def handle_about(method, path, headers, body):
@@ -80,12 +92,132 @@ def handle_not_found(method, path, headers, body):
     '''
     return make_response(404, 'Not Found', html)
 
+def handle_register(method, path, headers, body):
+    if method == 'GET':
+        html = '''
+        <html>
+        <body>
+            <h1>Create an Account</h1>
+            <form method="POST" action="/register">
+                <label>Username:<br>
+                    <input type="text" name="username" required>
+                </label><br><br>
+                <label>Password:<br>
+                    <input type="password" name="password" required>
+                </label><br><br>
+                <button type="submit">Register</button>
+            </form>
+            <p>Already have an account? <a href="/login">Log in</a></p>
+        </body>
+        </html>
+        '''
+        return make_response(200, 'OK', html)
+
+    if method == 'POST':
+        params   = parse_form_body(body)
+        username = params.get('username', '').strip()
+        password = params.get('password', '').strip()
+
+        if not username or not password:
+            return make_response(400, 'Bad Request', '<h1>Username and password are required.</h1>')
+
+        hashed = hash_password(password)
+        try:
+            conn = get_db()
+            conn.execute(
+                'INSERT INTO users (username, password) VALUES (?, ?)',
+                (username, hashed)
+            )
+            conn.commit()
+            conn.close()
+        except sqlite3.IntegrityError:
+            return make_response(400, 'Bad Request', '<h1>Username already taken.</h1>')
+
+        response_body = '<h1>Account created! <a href="/login">Log in</a></h1>'
+        return make_response(200, 'OK', response_body)
+
+def handle_login(method, path, headers, body):
+    if method == 'GET':
+        html = '''
+        <html>
+        <body>
+            <h1>Log In</h1>
+            <form method="POST" action="/login">
+                <label>Username:<br>
+                    <input type="text" name="username" required>
+                </label><br><br>
+                <label>Password:<br>
+                    <input type="password" name="password" required>
+                </label><br><br>
+                <button type="submit">Log In</button>
+            </form>
+            <p>No account? <a href="/register">Register</a></p>
+        </body>
+        </html>
+        '''
+        return make_response(200, 'OK', html)
+
+    if method == 'POST':
+        params   = parse_form_body(body)
+        username = params.get('username', '').strip()
+        password = params.get('password', '').strip()
+
+        conn = get_db()
+        user = conn.execute(
+            'SELECT * FROM users WHERE username = ?',
+            (username,)
+        ).fetchone()
+        conn.close()
+
+        if not user or not verify_password(user['password'], password):
+            return make_response(401, 'Unauthorized', '<h1>Invalid username or password.</h1>')
+
+        token = create_session(user['id'])
+
+        response_body = f'<h1>Welcome, {user["username"]}! <a href="/">Go home</a></h1>'
+        response = (
+            f'HTTP/1.1 302 Found\r\n'
+            f'Location: /\r\n'
+            f'Set-Cookie: session={token}; HttpOnly; Path=/\r\n'
+            f'Content-Length: 0\r\n'
+            '\r\n'
+        )
+        return response.encode('utf-8')
+
+def handle_logout(method, path, headers, body):
+    cookie_header = headers.get('Cookie', '')
+    token = ''
+    for part in cookie_header.split(';'):
+        part = part.strip()
+        if part.startswith('session='):
+            token = part[len('session='):]
+
+    if token:
+        conn = get_db()
+        conn.execute('DELETE FROM sessions WHERE token = ?', (token,))
+        conn.commit()
+        conn.close()
+
+    response = (
+        'HTTP/1.1 302 Found\r\n'
+        'Location: /login\r\n'
+        'Set-Cookie: session=; HttpOnly; Path=/; Max-Age=0\r\n'
+        'Content-Length: 0\r\n'
+        '\r\n'
+    )
+    return response.encode('utf-8')
+
 IP_ADDR = os.getenv("IP_ADDR", "0.0.0.0")
 PORT = int(os.getenv("PORT", 8080))
 
 router = Router()
-router.register('GET', '/', handle_home)
-router.register('GET', '/about', handle_about)
+router.register('GET',  '/',         handle_home)
+router.register('GET',  '/about',    handle_about)
+router.register('GET',  '/register', handle_register)
+router.register('POST', '/register', handle_register)
+router.register('GET',  '/login',    handle_login)
+router.register('POST', '/login',    handle_login)
+router.register('GET',  '/logout',   handle_logout)
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

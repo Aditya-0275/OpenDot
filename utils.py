@@ -49,3 +49,13 @@ def get_session_user(headers):
     ).fetchone()
     conn.close()
     return user
+
+def parse_form_body(body):
+    params = {}
+    if not body:
+        return params
+    for part in body.split('&'):
+        if '=' in part:
+            key, value = part.split('=', 1)
+            params[urllib.parse.unquote_plus(key)] = urllib.parse.unquote_plus(value)
+    return params
