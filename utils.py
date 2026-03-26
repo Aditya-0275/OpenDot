@@ -59,3 +59,50 @@ def parse_form_body(body):
             key, value = part.split('=', 1)
             params[urllib.parse.unquote_plus(key)] = urllib.parse.unquote_plus(value)
     return params
+
+def render_layout(content, current_user=None):
+    username = current_user['username'] if current_user else None
+    
+    if username:
+        nav = f'''
+        <nav>
+            <a href="/">Home</a> |
+            <a href="/post/new">New Post</a> |
+            <a href="/profile/{username}">My Profile</a> |
+            <a href="/logout">Log out ({username})</a>
+        </nav>
+        '''
+    else:
+        nav = '''
+        <nav>
+            <a href="/">Home</a> |
+            <a href="/login">Log in</a> |
+            <a href="/register">Register</a>
+        </nav>
+        '''
+
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>RawBlog</title>
+        <style>
+            body    {{ font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }}
+            nav     {{ margin-bottom: 30px; padding-bottom: 10px; border-bottom: 1px solid #ccc; }}
+            nav a   {{ margin-right: 12px; text-decoration: none; color: #333; }}
+            nav a:hover {{ text-decoration: underline; }}
+            .post   {{ border-bottom: 1px solid #eee; padding: 20px 0; }}
+            .post h2 {{ margin: 0 0 6px 0; }}
+            .meta   {{ color: #888; font-size: 0.85em; margin-bottom: 10px; }}
+            textarea {{ width: 100%; height: 200px; }}
+            input[type=text], input[type=password] {{ width: 100%; padding: 6px; margin-top: 4px; }}
+            button  {{ margin-top: 10px; padding: 8px 16px; cursor: pointer; }}
+        </style>
+    </head>
+    <body>
+        {nav}
+        {content}
+    </body>
+    </html>
+    '''
